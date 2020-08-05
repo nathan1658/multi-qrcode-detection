@@ -1,56 +1,69 @@
 from pyzbar.pyzbar import decode
 from pyzbar.pyzbar import ZBarSymbol
-from PIL import Image
-import numpy as np
 import cv2
 
-rt = 0.15
+barcodes = []
+
+BLACK_THRESHOLD = 200
+THIN_THRESHOLD = 200
+
+resizefactors = [1, 2, 4, 6]
+
+image = cv2.imread('pic2.jpg')
+imageGRY = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+cv2.imwrite('gray.jpg', imageGRY)
+
+ret, bw_im = cv2.threshold(imageGRY, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+#cv2.imwrite('bw_im.jpg',bw_im)
+
+def detectQR(product_img, input_img, contour, factor):
+    x, y, w, h = cv2.boundingRect(cnt)
+    if factor == 1 and h < THIN_THRESHOLD or w < THIN_THRESHOLD:
+        return False, product_img, None
+
+    roi = input_img[y:y + h, x:x + w]
+    if factor != 1:
+        roi = cv2.resize(roi, (int(roi.shape[1]*factor), int(roi.shape[0]*factor)), cv2.INTER_NEAREST)
+
+    b = decode(roi, symbols=[ZBarSymbol.QRCODE])
+    for barcode in b:
+        (x1, y1, w, h) = barcode.rect
+        if factor != 1:
+            x1 = int(x1/factor)
+            y1 = int(y1/factor)
+            w = int(w/factor)
+            h = int(h/factor)
+
+        barcodeData = barcode.data.decode("utf-8")
+        barcodeType = barcode.type
+        cv2.rectangle(product_img, (x+x1, y+y1), (x+x1 + w, y+y1 + h), (0, 0, 255), 4)
+        # draw the barcode data and barcode type on the image
+        text = "{} ({})".format(barcodeData, barcodeType)
+        cv2.putText(product_img, text, (x+x1, y+y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5, (0, 0, 255), 2)
+        print("[INFO] Resize {}x, Found {} barcode: {}".format(f, barcodeType, barcodeData))
+
+    return True, product_img, b
 
 
-image = cv2.imread(
-    'C:\\Users\\Nathan\\Downloads\\IMG_20200731_154553.jpg')
+contours, hierarchy = cv2.findContours(bw_im, 1, 3)
+for cnt in contours:
+    for f in resizefactors:
+        validdim, image, blist = detectQR(image, imageGRY, cnt, f)
+        if validdim is False:
+            break
+        elif len(blist) != 0:
+            for b in blist:
+                barcodes.append(b.data.decode("utf-8"))
+            break
+        else:
+            # Redundant
+            continue
 
-cv2.imwrite('original.jpg',image)
+# Remove duplicate barcodes
+barcodes = list(set(barcodes))
+print("barcode count: %d" % (len(barcodes)))
 
-imageGRY = cv2.imread(
-    'C:\\Users\\Nathan\\Downloads\\IMG_20200731_154553.jpg', cv2.IMREAD_GRAYSCALE)
-cv2.imwrite('gray.jpg',imageGRY)
-
-blur = cv2.GaussianBlur(imageGRY, (5, 5), 0)
-cv2.imwrite('blur.jpg',blur)
-
-ret, bw_im = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-# zbar
-cv2.imshow("bw_im", cv2.resize(
-    bw_im, (int(bw_im.shape[1]*rt), int(bw_im.shape[0]*rt))))
-
-cv2.imwrite('bw_im.jpg',bw_im)
-
-
-barcodes = decode(bw_im, symbols=[ZBarSymbol.QRCODE])
-
-
-# loop over the detected barcodes
-for barcode in barcodes:
-    # extract the bounding box location of the barcode and draw the
-    # bounding box surrounding the barcode on the image
-    (x, y, w, h) = barcode.rect
-    cv2.rectangle(image, (x, y), (x + w, y + h), (0, 0, 255), 2)
-    # the barcode data is a bytes object so if we want to draw it on
-    # our output image we need to convert it to a string first
-    barcodeData = barcode.data.decode("utf-8")
-    barcodeType = barcode.type
-    # draw the barcode data and barcode type on the image
-    text = "{} ({})".format(barcodeData, barcodeType)
-    cv2.putText(image, text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                0.5, (0, 0, 255), 2)
-    # print the barcode type and data to the terminal
-    print("[INFO] Found {} barcode: {}".format(barcodeType, barcodeData))
-# show the output image
-
-
-imS = cv2.resize(image, (int(image.shape[1]*rt), int(image.shape[0]*rt)))
-cv2.imshow("product", imS)
+image = cv2.resize(image, (int(image.shape[1]/2), int(image.shape[0]/2)))
 cv2.imwrite('product.jpg',image)
 
-cv2.waitKey(0)
